@@ -9,6 +9,9 @@ import {
 import { z } from "zod";
 import { PlasticityClient } from "./client.js";
 import { FacetShapeType, MessageType, ObjectType } from "./protocol.js";
+import { NativeOperations, nativeTools } from './native.js';
+import { CdpError } from './cdp.js';
+const native = new NativeOperations();
 
 const client = new PlasticityClient({
   server: process.env.PLASTICITY_SERVER ?? "localhost:8980",
@@ -276,16 +279,22 @@ function randomId(): string {
 // ---------- Server wiring ----------
 
 const server = new Server(
-  { name: "plasticity-mcp", version: "0.1.0" },
+  { name: "plasticity-mcp", version: "1.0.0" },
   { capabilities: { tools: {} } },
 );
 
-server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }));
+server.setRequestHandler(ListToolsRequestSchema, async () => ({
+  tools: [...nativeTools, ...(process.env.PLASTICITY_ENABLE_BRIDGE_TOOLS === '1' ? tools : [])],
+}));
 
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: rawArgs } = request.params;
 
   try {
+    if (name.startsWith('native_')) {
+      const result = await native.handle(name, rawArgs ?? {});
+      return name === 'native_screenshot' ? result : ok(result);
+    }
     switch (name) {
       case "connect": {
         const args = ConnectArgs.parse(rawArgs ?? {});
@@ -440,7 +449,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         throw new Error(`Unknown tool: ${name}`);
     }
   } catch (err) {
-    return error((err as Error).message);
+    return error((err as Error).message,err instanceof CdpError?err.code:'TOOL_ERROR');
   }
 });
 
@@ -456,14 +465,14 @@ function listSupported(): string[] {
 
 function ok(data: unknown) {
   return {
-    content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }],
+    content: [{ type: "text" as const, text: JSON.stringify(data ?? null, null, 2) }],
   };
 }
 
-function error(message: string) {
+function error(message: string,code='TOOL_ERROR') {
   return {
     isError: true,
-    content: [{ type: "text" as const, text: `Error: ${message}` }],
+    content: [{ type: "text" as const, text: JSON.stringify({error:{code,message}}) }],
   };
 }
 
@@ -479,3 +488,11 @@ main().catch((err) => {
   console.error("[plasticity-mcp] fatal:", err);
   process.exit(1);
 });
+
+async function shutdown() {
+  await Promise.allSettled([native.cdp.disconnect(),client.disconnect(),server.close()]);
+  process.exit(0);
+}
+process.stdin.once('end',()=>{void shutdown()});
+process.once('SIGTERM',()=>{void shutdown()});
+process.once('SIGINT',()=>{void shutdown()});

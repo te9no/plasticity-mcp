@@ -96,7 +96,7 @@ export class PlasticityClient {
   async connect(): Promise<void> {
     if (this.isConnected()) return;
     const url = `ws://${this.server}`;
-    this.ws = new WebSocket(url, { maxPayload: 2 ** 32 - 1 });
+    this.ws = new WebSocket(url, { maxPayload: 2 ** 32 - 1, handshakeTimeout: this.handshakeTimeoutMs });
 
     await new Promise<void>((resolve, reject) => {
       const ws = this.ws!;
@@ -106,7 +106,8 @@ export class PlasticityClient {
       };
       const onError = (err: Error) => {
         ws.off("open", onOpen);
-        reject(err);
+        this.ws = null;
+        reject(new Error(`Cannot connect to ${url}. Enable Plasticity's Blender bridge server, or use native_windows/native_connect for the CDP adapter. ${err.message || err.name}`));
       };
       ws.once("open", onOpen);
       ws.once("error", onError);
@@ -119,15 +120,17 @@ export class PlasticityClient {
       console.error("[plasticity-mcp] ws error:", err.message);
     });
 
-    await this.handshake();
+    try {await this.handshake();} catch(err) {await this.disconnect();throw err;}
   }
 
   async disconnect(): Promise<void> {
     if (!this.ws) return;
     const ws = this.ws;
     this.ws = null;
+    if(ws.readyState === WebSocket.CLOSED)return;
     return new Promise((resolve) => {
-      ws.once("close", () => resolve());
+      const timer=setTimeout(()=>{ws.terminate();resolve()},1000);
+      ws.once("close", () => {clearTimeout(timer);resolve()});
       try {
         ws.close();
       } catch {

@@ -1,3 +1,5 @@
+> For the Windows / Plasticity 25.3.0 native adapter, see the [current setup guide](../README.ja.md). The bridge notes below are historical.
+
 # plasticity-mcp
 
 MCP server for [Plasticity](https://www.plasticity.xyz/) 26.1.x. Talks the existing built-in WebSocket protocol (the one used by the official Blender bridge), no fork required.

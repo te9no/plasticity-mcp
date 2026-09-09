@@ -1,0 +1,15 @@
+{
+  "points": [[0, 0], [0.028, 0.003], [0.032, 0.018], [0.001, 0.022]],
+  "constraints": [
+    {"type": "fixed", "point": 0, "at": [0, 0]},
+    {"type": "horizontal", "a": 0, "b": 1},
+    {"type": "vertical", "a": 1, "b": 2},
+    {"type": "horizontal", "a": 2, "b": 3},
+    {"type": "vertical", "a": 3, "b": 0},
+    {"type": "distance", "a": 0, "b": 1, "value": 0.03},
+    {"type": "distance", "a": 1, "b": 2, "value": 0.02}
+  ],
+  "plane": "XY",
+  "origin": [0, 0, 0],
+  "closed": true
+}

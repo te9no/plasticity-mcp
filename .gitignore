@@ -11,3 +11,11 @@ Thumbs.db
 .idea/
 .claude/
 plasticity-fork/
+artifacts/
+.venv/
+__pycache__/
+mcp-client.json
+.codex-remote-attachments/
+
+# Local generated models and document backups
+models/

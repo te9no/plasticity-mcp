@@ -1,30 +1,47 @@
-# PlasticityMCP
+# Plasticity MCP 1.0
 
-MCP server for [Plasticity](https://www.plasticity.xyz/) (v2026.1+) — lets an LLM generate and modify 3D geometry inside a running Plasticity instance.
+A Windows MCP server for **Plasticity 25.3.0**, with 37 tools for native CAD operations, scene inspection, materials, document handling, and exchange formats.
 
-**Status:** Phase 0 — recon. Not yet usable.
+[日本語ガイド](README.ja.md) · [Supported scope and verification](docs/RELEASE-1.0.md) · [Runtime architecture](docs/native-runtime.md)
 
-See [task.md](task.md) for scope and phases.
+## Quick start
 
-## How it works (planned)
+Requires Windows, Node.js 22 or later, and an installed copy of Plasticity 25.3.0.
 
+```powershell
+./setup.ps1
+./start-plasticity.ps1
 ```
-LLM ──stdio──> MCP server ──WebSocket/JSON-RPC──> Plasticity (forked + bridge patch)
+
+Setup installs locked dependencies, builds and tests the server, and writes an ignored `mcp-client.json` containing configuration for your MCP client. Use `./setup.ps1 -WithIges` to install the optional Python/Open CASCADE converter.
+
+The server uses stdio. Connect to the local Plasticity debugging endpoint (default `http://127.0.0.1:9223`), call `native_windows`, then explicitly select a window with `native_connect`. Lengths and coordinates are **meters**, angles are degrees.
+
+## Capabilities
+
+- Native solids, batch creation, transforms, booleans, face extrusion and edge fillets.
+- Curves, circles and a limited 2D constraint solver.
+- Names, groups, materials, visibility, selection and Undo/Redo.
+- STEP and IGES exchange, OBJ export, native document copies and backup-assisted opening.
+- Camera controls, screenshots, durable recovery records and shared renderer write guards.
+
+This is an unofficial adapter against internal runtime APIs, pinned to the tested app version. It does not modify or distribute Plasticity application files. Advanced script execution is not sandboxed. GUI edits performed concurrently are outside the write guard.
+
+## Verification and example
+
+```powershell
+cd mcp-server
+npm ci --ignore-scripts
+npm run build
+npm test
 ```
 
-Plasticity already runs a built-in WebSocket server (used by the official [plasticity-blender-addon](https://github.com/nkallen/plasticity-blender-addon)) for scene sync and mesh push. We reuse that protocol directly — no fork needed for read/subscribe/push-mesh tools. For invoking CAD commands (extrude, fillet, boolean) we fork Plasticity and add a single `EXEC_COMMAND_1` opcode that calls into `CommandExecutor`.
+Unit tests do not require Plasticity. Live smoke tests require a separate disposable app window; see the release notes before running them.
 
-## Roadmap
+The [Tokyo Station example](examples/tokyo-station.md) created 1,082 CAD parts using named MCP tools only. Its native save/reopen check preserved part names, materials and groups. Model outputs, local logs, uploaded references and personal configuration are excluded from this repository.
 
-- [ ] **Phase 0** — Recon existing WS protocol (Blender addon source)
-- [ ] **Phase 1** — MCP MVP: read/subscribe/mesh-push (no fork)
-- [ ] **Phase 2** — Recon `CommandExecutor` in Plasticity source
-- [ ] **Phase 3** — Fork + minimal `EXEC_COMMAND_1` opcode
-- [ ] **Phase 4** — MCP CAD tools (extrude, boolean, fillet, …)
-- [ ] **Phase 5** — Scene awareness (list/select/inspect)
-- [ ] **Phase 6** — High-level generation tools
-- [ ] **Phase 7** — Visual verification loop (screenshots)
+## Upstream and license status
 
-## License
+This repository is a GitHub fork of [ozymandi/PlasticityMCP](https://github.com/ozymandi/PlasticityMCP), preserving its history. This fork adds the Windows 25.3.0 native adapter. The [original README](docs/upstream-README.md) describes the earlier bridge investigation.
 
-TBD. Plasticity itself is licensed under its own terms — see upstream repo before redistributing any forked binaries.
+Upstream has not specified a license. This fork does not assign a replacement license or claim permission for unrestricted redistribution. npm publication remains disabled. Plasticity and third-party dependencies retain their respective terms.
