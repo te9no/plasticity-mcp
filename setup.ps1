@@ -1,4 +1,4 @@
-param([switch]$WithIges)
+param([switch]$WithIges, [switch]$Experimental26)
 $ErrorActionPreference = 'Stop'
 $projectRoot = $PSScriptRoot
 $nodePath = (Get-Command node -ErrorAction Stop).Source
@@ -23,6 +23,9 @@ if ($WithIges) {
     if ($LASTEXITCODE -ne 0) { throw 'IGES dependency installation failed.' }
 }
 $config = @{mcpServers=@{plasticity=@{command=$nodePath;args=@((Join-Path $projectRoot 'mcp-server/dist/index.js'));env=@{PLASTICITY_CDP_URL='http://127.0.0.1:9223'}}}}
+if ($Experimental26) {
+    $config.mcpServers.plasticity.env = @{PLASTICITY_MAIN_CDP_URL='http://127.0.0.1:9230';PLASTICITY_EXPERIMENTAL_26='1'}
+}
 $config | ConvertTo-Json -Depth 8 | Set-Content -Encoding UTF8 -LiteralPath (Join-Path $projectRoot 'mcp-client.json')
 Write-Host 'Build and tests passed. MCP client configuration: mcp-client.json'
 Write-Host 'For the running app connection check: cd mcp-server; npm run doctor'

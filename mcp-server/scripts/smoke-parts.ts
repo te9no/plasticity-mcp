@@ -29,7 +29,7 @@ try{
  assert.equal(loaded.objects.length,grouped.objects.length);assert.ok(loaded.groups.some((g:any)=>g.name==='検証用グループ'));
  await call('native_view',{view:'front',mode:'orthographic',fit:true});
  await call('native_view',{view:'isometric',fit:true,materials:true});
- const projected=await n.cdp.run(`function(){const c=Array.from(this.viewports)[0].camera;let maximum=0;for(const {view} of this.db.items){if(!view.boundingBox||this.db.nodes.isHidden(view))continue;const b=view.boundingBox;for(let i=0;i<8;i++){const p=b.min.clone().set(i&1?b.max.x:b.min.x,i&2?b.max.y:b.min.y,i&4?b.max.z:b.min.z).project(c);maximum=Math.max(maximum,Math.abs(p.x),Math.abs(p.y))}}return maximum}`,[],[],{readOnly:true});
+ const projected=await n.cdp.run(`function(){const c=Array.from(this.viewports)[0].camera;let maximum=0;for(const {view} of (this.db.items??Array.from(this.db.geo.geometryModel.values()))){if(!view.boundingBox||this.db.nodes.isHidden(this.db.items?view:this.db.nodes.item2key(view)))continue;const b=view.boundingBox;for(let i=0;i<8;i++){const p=b.min.clone().set(i&1?b.max.x:b.min.x,i&2?b.max.y:b.min.y,i&4?b.max.z:b.min.z).project(c);maximum=Math.max(maximum,Math.abs(p.x),Math.abs(p.y))}}return maximum}`,[],[],{readOnly:true});
  assert.ok(projected<=1,'Camera fit must keep every visible bounds corner in the viewport: '+projected);
  const shot=await call('native_screenshot');await writeFile(resolve(output,'preview.png'),Buffer.from(shot.content[0].data,'base64'));
  console.log('Parts and native document roundtrip verified:',output);

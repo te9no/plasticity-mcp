@@ -13,7 +13,7 @@
     "dev": "tsx src/index.ts",
     "start": "node dist/index.js",
     "smoke": "tsx src/smoke.ts",
-    "test": "tsx src/protocol.test.ts && tsx --test src/cdp.test.ts src/sketch.test.ts",
+    "test": "tsx src/protocol.test.ts && tsx --test src/cdp.test.ts src/sketch.test.ts src/cdp-main.test.ts src/main-inspector.test.ts",
     "smoke:native": "tsx scripts/smoke-native.ts",
     "smoke:detail": "tsx scripts/smoke-detail.ts",
     "smoke:exchange": "tsx scripts/smoke-exchange.ts",
@@ -23,6 +23,7 @@
     "smoke:document": "tsx scripts/smoke-document.ts",
     "smoke:parts": "tsx scripts/smoke-parts.ts",
     "smoke:crash": "tsx scripts/smoke-crash.ts",
+    "smoke:inspector": "tsx scripts/smoke-inspector.ts",
     "smoke:batch": "tsx scripts/smoke-batch.ts",
     "doctor": "tsx scripts/doctor.ts",
     "typecheck": "tsc --noEmit"

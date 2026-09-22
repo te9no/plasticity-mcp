@@ -55,14 +55,16 @@ export const nativeTools:Tool[]=[
  tool('native_execute_script','Advanced: execute asynchronous JavaScript inside the selected Plasticity renderer, with editor and requested runtime bindings. Full native app access; no sandbox or automatic undo. Use named tools first. Do not retry on timeout without inspecting the scene.',{code:{type:'string'},bindings:{type:'array',items:{type:'string'},default:[]}},['code']),
 ];
 
+const sceneItems='(this.db.items ?? Array.from(this.db.geo.geometryModel.values()))';
+const editorItems='(editor.db.items ?? Array.from(editor.db.geo.geometryModel.values()))';
 const sceneBody=`return {
  filename:this.document.filename??null,displayUnits:this.settings.Unit,coordinateUnits:'meters',
  documentUuid:this.document.uuid??null,documentVersion:this.originator.version,
  groups:Array.from(this.db.groups.all).map(id=>({id,name:this.db.nodes.getName(this.db.nodes.item2key(this.db.groups.lookupById(id)))??null})),
  busy:this.executor.isBusy,undoDepth:this.history.undoStack.length,redoDepth:this.history.redoStack.length,
- objects:this.db.items.filter(({view})=>this.db.lookupStableId(view.versionId)!=null).map(({view})=>({id:this.db.lookupStableId(view.versionId),versionId:view.versionId,
- name:this.db.getName(view)??null,type:view.constructor.name,
- hidden:this.db.nodes.isHidden(view),materialId:this.db.getMaterialId(view)??0,parentId:this.db.groups.getParentId(this.db.nodes.item2key(view))??null,
+ objects:${sceneItems}.filter(({view})=>this.db.lookupStableId(view.versionId)!=null).map(({view})=>({id:this.db.lookupStableId(view.versionId),versionId:view.versionId,
+ name:(this.db.getName?this.db.getName(view):this.db.nodes.getName(this.db.nodes.item2key(view)))??null,type:view.constructor.name,
+ hidden:this.db.nodes.isHidden(this.db.items?view:this.db.nodes.item2key(view)),materialId:(this.db.getMaterialId?this.db.getMaterialId(view):this.db.nodes.getMaterialId(this.db.nodes.item2key(view)))??0,parentId:this.db.groups.getParentId(this.db.nodes.item2key(view))??null,
  bbox:view.boundingBox?{min:view.boundingBox.min.toArray(),max:view.boundingBox.max.toArray()}:null}))
 }`;
 
@@ -77,15 +79,15 @@ const commandBody=(command:string,body:string,boundCommand=false,extra='')=>`asy
  if(!ran)throw new Error('Native command did not execute');
  ${sceneBody}
 }`;
-const lookup=`const find=id=>{const row=editor.db.items.find(({view})=>editor.db.lookupStableId(view.versionId)===id);if(!row)throw new Error('Object ID not found: '+id);return row.view;};`;
-const fitBody=`const rows=this.db.items.filter(({view})=>view.boundingBox&&!this.db.nodes.isHidden(view));if(rows.length){const min=[Infinity,Infinity,Infinity],max=[-Infinity,-Infinity,-Infinity];for(const {view} of rows){const b=view.boundingBox;for(let i=0;i<3;i++){min[i]=Math.min(min[i],b.min.getComponent(i));max[i]=Math.max(max[i],b.max.getComponent(i))}}const center=v.camera.target.clone().fromArray(min.map((x,i)=>(x+max[i])/2));const radius=Math.max(1e-6,Math.hypot(...max.map((x,i)=>x-min[i]))/2),o=v.orbitControls,c=v.camera;const distance=radius/Math.sin(Math.min(c.perspective.fov*Math.PI/360,Math.atan(Math.tan(c.perspective.fov*Math.PI/360)*c.aspect)))*1.4;o.target.copy(center);o.targetEnd.copy(center);o.focalOffset.set(0,0,0);o.focalOffsetEnd.set(0,0,0);o.radius=o.radiusEnd=distance;const zoom=Math.min(c.orthographic.right-c.orthographic.left,c.orthographic.top-c.orthographic.bottom)/(radius*2*1.4);o.zoom=o.zoomEnd=zoom;c.zoom=zoom;o.setNeedsUpdate();o.update(1/60);c.updateProjectionMatrix()}`;
+const lookup=`const find=id=>{const row=${editorItems}.find(({view})=>editor.db.lookupStableId(view.versionId)===id);if(!row)throw new Error('Object ID not found: '+id);return row.view;};`;
+const fitBody=`const rows=${sceneItems}.filter(({view})=>view.boundingBox&&!this.db.nodes.isHidden(this.db.items?view:this.db.nodes.item2key(view)));if(rows.length){const min=[Infinity,Infinity,Infinity],max=[-Infinity,-Infinity,-Infinity];for(const {view} of rows){const b=view.boundingBox;for(let i=0;i<3;i++){min[i]=Math.min(min[i],b.min.getComponent(i));max[i]=Math.max(max[i],b.max.getComponent(i))}}const center=v.camera.target.clone().fromArray(min.map((x,i)=>(x+max[i])/2));const radius=Math.max(1e-6,Math.hypot(...max.map((x,i)=>x-min[i]))/2),o=v.orbitControls,c=v.camera;const distance=radius/Math.sin(Math.min(c.perspective.fov*Math.PI/360,Math.atan(Math.tan(c.perspective.fov*Math.PI/360)*c.aspect)))*1.4;o.target.copy(center);o.targetEnd.copy(center);o.focalOffset.set(0,0,0);o.focalOffsetEnd.set(0,0,0);o.radius=o.radiusEnd=distance;const zoom=Math.min(c.orthographic.right-c.orthographic.left,c.orthographic.top-c.orthographic.bottom)/(radius*2*1.4);o.zoom=o.zoomEnd=zoom;c.zoom=zoom;o.setNeedsUpdate();o.update(1/60);c.updateProjectionMatrix()}`;
 const editBody=(body:string)=>`async function(args){if(this.executor.isBusy)throw new Error('Plasticity busy');const editor=this;${lookup}const views=args.ids.map(find);let failure,ran=false;const cmd=new this.commands.GroupSelectedCommand(this);cmd.remember=false;cmd.execute=async function(){ran=true;try{${body}}catch(e){failure=e;throw e}};await this.exec(cmd);if(failure)throw failure;if(!ran)throw new Error('Command did not execute');${sceneBody}}`;
 
 export class NativeOperations {
  readonly cdp:PlasticityCdp;
  private queue:Promise<unknown>=Promise.resolve();
  private runtimeVersion?:string;
- constructor(endpoint=process.env.PLASTICITY_CDP_URL??'http://127.0.0.1:9223'){this.cdp=new PlasticityCdp(endpoint)}
+ constructor(endpoint?:string){this.cdp=new PlasticityCdp(endpoint)}
  handle(name:string,raw:unknown={}){
    // Serialize selection, edits and inspections so callers cannot race the native command executor.
    const job=this.queue.then(()=>this.dispatch(name,raw));this.queue=job.catch(()=>{});return job;
@@ -101,13 +103,19 @@ export class NativeOperations {
   switch(name){
    case 'native_windows':return (await this.cdp.targets()).map(t=>({targetId:t.id,title:t.title}));
    case 'native_connect':{
-    const a=z.object({targetId:z.string().min(1)}).strict().parse(raw);await this.cdp.connect(a.targetId);
-    try{
-     const path=fileURLToPath(new URL('../../../package.json',this.cdp.target!.url));
-     const pkg=JSON.parse(await readFile(path,'utf8'));this.runtimeVersion=pkg.version;
-     if(pkg.name!=='Plasticity'||pkg.version!=='25.3.0')throw new Error('Supported runtime is Plasticity 25.3.0; found '+pkg.version);
-    }catch(e){await this.cdp.disconnect();throw e}
-    return {targetId:a.targetId,runtimeVersion:this.runtimeVersion,...await this.scene()};
+    const a=z.object({targetId:z.string().min(1)}).strict().parse(raw);
+    this.runtimeVersion=undefined;
+    let version:string|undefined;
+    await this.cdp.connect(a.targetId,async target=>{
+     const path=fileURLToPath(new URL('../../../package.json',target.url));
+     const pkg=JSON.parse(await readFile(path,'utf8'));
+     const compatible=pkg.version==='25.3.0'||(pkg.version==='26.1.3'&&process.env.PLASTICITY_EXPERIMENTAL_26==='1');
+     if(pkg.name!=='Plasticity'||!compatible)throw new Error('Supported runtime is Plasticity 25.3.0 (26.1.3 requires PLASTICITY_EXPERIMENTAL_26=1); found '+pkg.version);
+     version=pkg.version;
+    });
+    this.runtimeVersion=version;
+    try{return {targetId:a.targetId,runtimeVersion:this.runtimeVersion,...await this.scene()}}
+    catch(e){this.runtimeVersion=undefined;await this.cdp.disconnect();throw e}
    }
    case 'native_scene':return this.scene();
    case 'native_recover':{
@@ -137,9 +145,9 @@ export class NativeOperations {
    }
    case 'native_rename':{
     const a=z.object({id:z.number().int().positive(),name:z.string().trim().min(1).max(120)}).strict().parse(raw);
-    return this.cdp.run(`async function(args){if(this.executor.isBusy)throw new Error('Plasticity busy');const editor=this;${lookup}const view=find(args.id);let failure,ran=false;const cmd=new this.commands.GroupSelectedCommand(this);cmd.remember=false;cmd.execute=async function(){ran=true;try{editor.db.nodes.setName(editor.db.nodes.item2key(view),args.name)}catch(e){failure=e;throw e}};await this.exec(cmd);if(failure)throw failure;if(!ran)throw new Error('Rename did not execute');if(editor.db.getName(view)!==args.name)throw new Error('Rename verification failed');${sceneBody}}`,[],[a]);
+    return this.cdp.run(`async function(args){if(this.executor.isBusy)throw new Error('Plasticity busy');const editor=this;${lookup}const view=find(args.id);let failure,ran=false;const cmd=new this.commands.GroupSelectedCommand(this);cmd.remember=false;cmd.execute=async function(){ran=true;try{editor.db.nodes.setName(editor.db.nodes.item2key(view),args.name)}catch(e){failure=e;throw e}};await this.exec(cmd);if(failure)throw failure;if(!ran)throw new Error('Rename did not execute');if((editor.db.getName ? editor.db.getName(view) : editor.db.nodes.getName(editor.db.nodes.item2key(view)))!==args.name)throw new Error('Rename verification failed');${sceneBody}}`,[],[a]);
    }
-   case 'native_materials':return this.cdp.run(`function(){return Array.from(this.db.materials.materials).map(([id,{name,material:m}])=>({id,name,color:'#'+m.color.getHexString(),roughness:m.roughness,metalness:m.metalness}))}`,[],[],{readOnly:true});
+   case 'native_materials':return this.cdp.run(`function(){return Array.from(this.db.materials.materials??this.db.materials.list()).map(([id,{name,material:m}])=>({id,name,color:'#'+m.color.getHexString(),roughness:m.roughness,metalness:m.metalness}))}`,[],[],{readOnly:true});
    case 'native_set_material':{
     const a=z.object({ids,materialId:z.number().int().nonnegative().optional(),name:z.string().trim().min(1).max(120).optional(),color:z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),roughness:z.number().min(0).max(1).default(.6),metalness:z.number().min(0).max(1).default(0)}).strict().parse(raw);
     if(a.materialId===undefined&&(!a.name||!a.color))throw new Error('Provide materialId, or both name and color');
@@ -148,7 +156,7 @@ export class NativeOperations {
    }
    case 'native_visibility':{
     const a=z.object({ids,hidden:z.boolean()}).strict().parse(raw);
-    return this.cdp.run(editBody(`for(const v of views)editor.db.nodes.setHidden(v,args.hidden);`),[],[a]);
+    return this.cdp.run(editBody(`for(const v of views)editor.db.nodes.setHidden(editor.db.items?v:editor.db.nodes.item2key(v),args.hidden);`),[],[a]);
    }
    case 'native_group':case 'native_delete':{
     const a=(name==='native_group'?z.object({ids,name:z.string().trim().min(1).max(120)}):z.object({ids})).strict().parse(raw);
@@ -176,10 +184,10 @@ export class NativeOperations {
     if(a.closed&&points.length<3)throw new Error('Closed sketch requires at least three points');
     const pairs=points.slice(1).map((p,i)=>[p,points[i]!]);if(a.closed)pairs.push([points[0]!,points.at(-1)!]);
     if(pairs.some(([p,q])=>Math.hypot(...p!.map((x,i)=>x-q![i]!))<1e-9))throw new Error('Solved sketch has a zero-length segment');
-    const scene=await this.cdp.run(commandBody('CurveCommand',`${lookup}if(args.replaceId){const old=find(args.replaceId);if(old.constructor.name!=='Wire')throw new Error('replaceId must identify a Wire');Object.defineProperty(f,'originalItems',{get:()=>[old]});}f.points=args.points.map(p=>new V(...p));f.type=T.Polyline;f.closed=args.closed;`,false,'V,T'),['CurveFactory','three_core_Vector3','CurveType'],[{points,closed:a.closed,replaceId:a.replaceId}]);
+    const scene=await this.cdp.run(commandBody('CurveCommand',`${lookup}if(args.replaceId){const old=find(args.replaceId);if(old.constructor.name!=='Wire')throw new Error('replaceId must identify a Wire');Object.defineProperty(f,'originalItems',{get:()=>[old]});}f.points=args.points.map(p=>new V(...p));f.type=T.Polyline;f.closed=args.closed;`,false,'V,T'),['CurveFactory',this.runtimeVersion==='26.1.3'?'Vector3':'three_core_Vector3','CurveType'],[{points,closed:a.closed,replaceId:a.replaceId}]);
     return {scene,solution,recipe:{points:solution.points,constraints:a.constraints,plane:a.plane,origin:a.origin,closed:a.closed}};
    }
-   case 'native_capabilities':return {target:this.cdp.target?.id??null,supportedVersion:'25.3.0',runtimeVersion:this.runtimeVersion??null,tools:nativeTools.map(t=>t.name),bindings:this.cdp.names(),note:'Unofficial internal API adapter pinned to Plasticity 25.3.0. Binding presence does not imply a supported tool.'};
+   case 'native_capabilities':return {target:this.cdp.target?.id??null,supportedVersion:'25.3.0',experimentalVersions:['26.1.3'],runtimeVersion:this.runtimeVersion??null,transport:this.cdp.mainInspector?'main-inspector':'renderer-cdp',tools:nativeTools.map(t=>t.name),bindings:this.cdp.names(),note:'Unofficial internal API adapter. 26.1.3 is opt-in experimental support. Binding presence does not imply a tested tool.'};
    case 'native_create_primitive':{
     const a=z.object({shape:z.enum(['sphere','box','cylinder']),origin:vector,radius:z.number().finite().positive().optional(),size:vector.refine(v=>v.every(n=>n>0),'Every size must be positive').optional(),height:z.number().finite().positive().optional()}).strict().parse(raw);
     if(a.shape!=='box'&&!a.radius)throw new Error('radius required');
@@ -191,7 +199,7 @@ export class NativeOperations {
    case 'native_create_primitives':{
     const part=z.object({shape:z.enum(['box','sphere','cylinder']),origin:vector,size:vector.refine(v=>v.every(x=>x>0)).optional(),radius:z.number().finite().positive().optional(),height:z.number().finite().positive().optional(),name:z.string().trim().min(1).max(120).optional(),materialId:z.number().int().nonnegative().optional()}).strict().superRefine((a,c)=>{if(a.shape==='box'&&!a.size)c.addIssue({code:'custom',message:'Box size required'});if(a.shape!=='box'&&!a.radius)c.addIssue({code:'custom',message:'Radius required'});if(a.shape==='cylinder'&&!a.height)c.addIssue({code:'custom',message:'Cylinder height required'})});
     const a=z.object({parts:z.array(part).min(1).max(100)}).strict().parse(raw);
-    return this.cdp.run(`async function(B,S,C,args){if(this.executor.isBusy)throw new Error('Plasticity busy');const editor=this;for(const p of args.parts)if(p.materialId&& !editor.db.materials.has(p.materialId))throw new Error('Material ID not found: '+p.materialId);const before=new Set(editor.db.items.map(({view})=>editor.db.lookupStableId(view.versionId)));let failure,ran=false;const cmd=new editor.commands.GroupSelectedCommand(editor);cmd.remember=false;cmd.execute=async function(){ran=true;try{for(const p of args.parts){const f=new ({box:B,sphere:S,cylinder:C})[p.shape](editor).resource(this);if(p.shape==='box'){const [x,y,z]=p.origin,[w,d,h]=p.size;f.p1.set(x,y,z);f.p2.set(x+w,y,z);f.p3.set(x+w,y+d,z);f.p4.set(x+w,y+d,z+h)}else{f.center.fromArray(p.origin);f.radius=p.radius;if(p.shape==='cylinder')f.height=p.height}const previous=new Set(editor.db.items.map(({view})=>editor.db.lookupStableId(view.versionId)));await f.commit();for(const {view} of editor.db.items){const id=editor.db.lookupStableId(view.versionId);if(id==null||previous.has(id))continue;const key=editor.db.nodes.item2key(view);if(p.name)editor.db.nodes.setName(key,p.name);if(p.materialId!==undefined)editor.db.nodes.setMaterial(key,p.materialId)}}}catch(e){failure=e;throw e}};await editor.exec(cmd);if(failure)throw failure;if(!ran)throw new Error('Command did not execute');const createdIds=editor.db.items.map(({view})=>editor.db.lookupStableId(view.versionId)).filter(id=>id!=null&&!before.has(id));return {createdIds,scene:(function(){${sceneBody}}).call(editor)}}`,['ThreePointBoxFactory','PossiblyBooleanSphereFactory','PossiblyBooleanCylinderFactory'],[a]);
+    return this.cdp.run(`async function(B,S,C,args){if(this.executor.isBusy)throw new Error('Plasticity busy');const editor=this;for(const p of args.parts)if(p.materialId&& !editor.db.materials.has(p.materialId))throw new Error('Material ID not found: '+p.materialId);const before=new Set(${editorItems}.map(({view})=>editor.db.lookupStableId(view.versionId)));let failure,ran=false;const cmd=new editor.commands.GroupSelectedCommand(editor);cmd.remember=false;cmd.execute=async function(){ran=true;try{for(const p of args.parts){const f=new ({box:B,sphere:S,cylinder:C})[p.shape](editor).resource(this);if(p.shape==='box'){const [x,y,z]=p.origin,[w,d,h]=p.size;f.p1.set(x,y,z);f.p2.set(x+w,y,z);f.p3.set(x+w,y+d,z);f.p4.set(x+w,y+d,z+h)}else{f.center.fromArray(p.origin);f.radius=p.radius;if(p.shape==='cylinder')f.height=p.height}const previous=new Set(${editorItems}.map(({view})=>editor.db.lookupStableId(view.versionId)));await f.commit();for(const {view} of ${editorItems}){const id=editor.db.lookupStableId(view.versionId);if(id==null||previous.has(id))continue;const key=editor.db.nodes.item2key(view);if(p.name)editor.db.nodes.setName(key,p.name);if(p.materialId!==undefined)editor.db.nodes.setMaterial(key,p.materialId)}}}catch(e){failure=e;throw e}};await editor.exec(cmd);if(failure)throw failure;if(!ran)throw new Error('Command did not execute');const createdIds=${editorItems}.map(({view})=>editor.db.lookupStableId(view.versionId)).filter(id=>id!=null&&!before.has(id));return {createdIds,scene:(function(){${sceneBody}}).call(editor)}}`,['ThreePointBoxFactory','PossiblyBooleanSphereFactory','PossiblyBooleanCylinderFactory'],[a]);
    }
    case 'native_move':{
     const a=z.object({ids,delta:vector}).strict().parse(raw);
@@ -201,7 +209,7 @@ export class NativeOperations {
     const a=z.object({points:z.array(vector).min(2).max(1000),kind:z.enum(['polyline','spline']),closed:z.boolean().default(false)}).strict().parse(raw);
     if(a.closed&&a.points.length<3)throw new Error('Closed curve requires at least three points');
     if(a.points.some((p,i)=>i>0&&Math.hypot(...p.map((v,k)=>v-a.points[i-1]![k]!))<1e-9))throw new Error('Consecutive points must differ');
-    return this.cdp.run(commandBody('CurveCommand','f.points=args.points.map(p=>new V(...p));f.type=args.kind===\'polyline\'?T.Polyline:T.NURBS;f.closed=args.closed;',false,'V,T'),['CurveFactory','three_core_Vector3','CurveType'],[a]);
+    return this.cdp.run(commandBody('CurveCommand','f.points=args.points.map(p=>new V(...p));f.type=args.kind===\'polyline\'?T.Polyline:T.NURBS;f.closed=args.closed;',false,'V,T'),['CurveFactory',this.runtimeVersion==='26.1.3'?'Vector3':'three_core_Vector3','CurveType'],[a]);
    }
    case 'native_sketch_circle':{
     const a=z.object({center:vector,normal:vector.refine(v=>Math.hypot(...v)>1e-12,'Normal cannot be zero'),radius:z.number().finite().positive()}).strict().parse(raw);
@@ -261,7 +269,7 @@ export class NativeOperations {
    }
    case 'native_extrude_faces':{
     const a=z.object({id:z.number().int().positive(),faceIds:z.array(z.string()).min(1),distance:z.number().finite().positive()}).strict().parse(raw);
-    return this.cdp.run(commandBody('ExtrudeCommand',`${lookup}const v=find(args.id),fs=v.high.faces;f.faces=args.faceIds.map(id=>{const i=fs.versionIds.indexOf(id);if(i<0)throw new Error('Stale or unknown face: '+id);return fs.get(i)});f.distance1=args.distance;`),['FaceExtrudeFactory'],[a]);
+    return this.cdp.run(commandBody('ExtrudeCommand',`${lookup}const v=find(args.id),fs=v.high.faces;f.faces=args.faceIds.map(id=>{const i=fs.versionIds.indexOf(id);if(i<0)throw new Error('Stale or unknown face: '+id);return fs.get(i)});f.distance1=args.distance;`),[this.runtimeVersion==='26.1.3'?'ExtrudeFactory':'FaceExtrudeFactory'],[a]);
    }
    case 'native_boolean':{
     const a=z.object({targetIds:ids,toolIds:ids,operation:z.enum(['union','difference','intersection']),keepTools:z.boolean().default(false)}).strict().parse(raw);
@@ -276,7 +284,7 @@ export class NativeOperations {
    case 'native_export_obj':{
     const a=z.object({ids,path:z.string().min(1)}).strict().parse(raw);
     const output=resolve(a.path);if(!output.toLowerCase().endsWith('.obj'))throw new Error('Output path must end in .obj');
-    const data=await this.cdp.run(`function(args){const editor=this;${lookup}return args.ids.map(id=>{const v=find(id),mesh=v.high?.faces?.mesh,g=mesh?.geometry;if(!g)throw new Error('No surface mesh for '+id);return {id,name:editor.db.getName(v)??('Object_'+id),positions:Array.from(g.attributes.position.array),indices:g.index?Array.from(g.index.array):null,matrix:mesh.matrixWorld.elements};})}`,[],[a]);
+    const data=await this.cdp.run(`function(args){const editor=this;${lookup}return args.ids.map(id=>{const v=find(id),mesh=v.high?.faces?.mesh,g=mesh?.geometry;if(!g)throw new Error('No surface mesh for '+id);return {id,name:(editor.db.getName ? editor.db.getName(v) : editor.db.nodes.getName(editor.db.nodes.item2key(v)))??('Object_'+id),positions:Array.from(g.attributes.position.array),indices:g.index?Array.from(g.index.array):null,matrix:mesh.matrixWorld.elements};})}`,[],[a]);
     const lines=['# Plasticity MCP: triangulated viewport mesh, meters'];let offset=1;
     for(const m of data){
      lines.push(`o ${String(m.name).replace(/[\r\n\s#]/g,'_')}`);const p=m.positions,e=m.matrix;
@@ -290,8 +298,7 @@ export class NativeOperations {
    }
    case 'native_screenshot':{
     if(!this.cdp.target)throw new Error('Connect to a window first');
-    await this.cdp.call('Page.bringToFront',{},5000);
-    const shot=await this.cdp.call('Page.captureScreenshot',{format:'png'},30000);
+    const shot=await this.cdp.captureScreenshot();
     return {content:[{type:'image' as const,data:shot.data,mimeType:'image/png'}]};
    }
    case 'native_execute_script':{

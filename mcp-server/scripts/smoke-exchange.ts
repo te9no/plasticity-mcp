@@ -1,3 +1,4 @@
+import {clientEnv} from './client-env.js';
 import {Client} from '@modelcontextprotocol/sdk/client/index.js';
 import {StdioClientTransport} from '@modelcontextprotocol/sdk/client/stdio.js';
 import assert from 'node:assert/strict';
@@ -10,7 +11,7 @@ const report:unknown[]=[];
 async function call(name:string,args:Record<string,unknown>={}){const r=await client.callTool({name,arguments:args});if(r.isError)throw new Error(JSON.stringify(r.content));const data=JSON.parse((r.content as any[])[0].text);report.push({name,data});console.log(name,'OK');return data;}
 const close=(actual:number[],expected:number[])=>actual.forEach((v,i)=>assert.ok(Math.abs(v-expected[i]!)<1e-5,`Expected ${actual} ≈ ${expected}`));
 try{
- await client.connect(new StdioClientTransport({command:process.execPath,args:[resolve('dist/index.js')],stderr:'pipe'}));
+ await client.connect(new StdioClientTransport({command:process.execPath,args:[resolve('dist/index.js')],stderr:'pipe',env:clientEnv}));
  const before=await call('native_connect',{targetId});assert.equal(before.filename,null,'Use disposable test document');
  const created=await call('native_create_primitive',{shape:'box',origin:[0.02,0,0],size:[0.03,0.02,0.01]});
  const id=created.objects.find((o:any)=>!before.objects.some((b:any)=>b.id===o.id)).id;

@@ -4,6 +4,18 @@ A Windows MCP server for **Plasticity 25.3.0**, with 37 tools for native CAD ope
 
 [日本語ガイド](README.ja.md) · [Supported scope and verification](docs/RELEASE-1.0.md) · [Runtime architecture](docs/native-runtime.md)
 
+## Experimental Windows / Plasticity 26.1.3 support
+
+An opt-in Electron **main-process Inspector** transport supports 26.1.3, where the usual renderer debugging port was unavailable in the tested build. Modeling, curves, STEP/IGES exchange, OBJ export, native document save/reopen, materials/groups, camera capture, and recovery were tested against Windows 26.1.3. Other releases are still rejected. See [26.1.3 setup and verification](docs/COMPATIBILITY-26.1.3.md) for the exact tested scope and limitations.
+
+```powershell
+# PowerShell 7; close Plasticity normally after saving your work first.
+./setup.ps1 -Experimental26
+./start-plasticity.ps1 -Experimental26
+```
+
+Use the generated `mcp-client.json`. The new transport requires `PLASTICITY_MAIN_CDP_URL=http://127.0.0.1:9230` and `PLASTICITY_EXPERIMENTAL_26=1`. It uses the installed application's Electron APIs and does not patch its files. The existing 25.3.0 renderer transport remains the default.
+
 ## Quick start
 
 Requires Windows, Node.js 22 or later, and an installed copy of Plasticity 25.3.0.

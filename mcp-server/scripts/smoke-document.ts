@@ -1,3 +1,4 @@
+import {clientEnv} from './client-env.js';
 import {Client} from '@modelcontextprotocol/sdk/client/index.js';
 import {StdioClientTransport} from '@modelcontextprotocol/sdk/client/stdio.js';
 import assert from 'node:assert/strict';
@@ -8,7 +9,7 @@ const output=resolve('../artifacts',`document-${Date.now()}`);await mkdir(output
 const client=new Client({name:'plasticity-document-test',version:'1.0.0'}),report:any[]=[];
 async function call(name:string,args:Record<string,unknown>={}){const r=await client.callTool({name,arguments:args});if(r.isError)throw new Error(JSON.stringify(r.content));const data=JSON.parse((r.content as any[])[0].text);report.push({name,data});return data}
 try{
- await client.connect(new StdioClientTransport({command:process.execPath,args:[resolve('dist/index.js')],stderr:'pipe'}));
+ await client.connect(new StdioClientTransport({command:process.execPath,args:[resolve('dist/index.js')],stderr:'pipe',env:clientEnv}));
  const initial=await call('native_connect',{targetId});
  const created=await call('native_create_primitive',{shape:'box',origin:[.8,0,0],size:[.01,.02,.03]});
  const object=created.objects.find((o:any)=>!initial.objects.some((p:any)=>p.id===o.id));assert.ok(object);

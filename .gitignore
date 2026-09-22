@@ -19,3 +19,5 @@ mcp-client.json
 
 # Local generated models and document backups
 models/
+.test-state/
+.runtime-state/

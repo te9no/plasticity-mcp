@@ -1,9 +1,10 @@
+import {clientEnv} from './client-env.js';
 // Read-only MCP + live connection verification.
 import {Client} from '@modelcontextprotocol/sdk/client/index.js';
 import {StdioClientTransport} from '@modelcontextprotocol/sdk/client/stdio.js';
 import {resolve} from 'node:path';
 const client=new Client({name:'plasticity-doctor',version:'1.0.0'});
-const transport=new StdioClientTransport({command:process.execPath,args:[resolve(import.meta.dirname,'../dist/index.js')],stderr:'pipe'});
+const transport=new StdioClientTransport({command:process.execPath,args:[resolve(import.meta.dirname,'../dist/index.js')],stderr:'pipe',env:clientEnv});
 try{
  await client.connect(transport);
  const tools=await client.listTools();
