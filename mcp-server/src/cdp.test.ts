@@ -39,6 +39,8 @@ test('CDP selects explicit Plasticity target, discovers bindings, surfaces error
  try{
   assert.equal((await c.targets()).length,2);
   await assert.rejects(()=>c.connect('missing'),/not found/);assert.equal(connections.length,0);
+  await assert.rejects(()=>c.connect('second',async()=>{throw new Error('Unsupported runtime')}),/Unsupported runtime/);
+  assert.equal(connections.length,0,'Reject unsupported versions before opening the renderer debugger');
   await c.connect('second');assert.deepEqual(connections,['/second']);
   assert.ok(c.names().includes('SphereFactory'));
   assert.deepEqual(await c.run('function(){}',['SphereFactory'],[{radius:3}]),{target:'/second',args:[{objectId:'factory'},{radius:3}]});

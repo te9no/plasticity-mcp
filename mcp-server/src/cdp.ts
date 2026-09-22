@@ -2,12 +2,13 @@ import WebSocket from 'ws';
 import {randomUUID} from 'node:crypto';
 import {OperationStore,type OperationRecord} from './operation-store.js';
 import {installGuard,guardedCall,clearOperation} from './runtime-guard.js';
+import {buildMainDiscoveryExpression,buildAttachExpression,buildDetachExpression,buildRendererCommandExpression,buildScreenshotExpression} from './main-inspector.js';
 
 export class CdpError extends Error {
   constructor(readonly code:string,message:string){super(message);this.name='CdpError'}
 }
 
-export interface PlasticityTarget { id: string; title: string; url: string; webSocketDebuggerUrl: string }
+export interface PlasticityTarget { id: string; title: string; url: string; webSocketDebuggerUrl: string; webContentsId?:number }
 interface Remote { type: string; objectId?: string; value?: any }
 export class PlasticityCdp {
   private ws?: WebSocket;
@@ -19,23 +20,51 @@ export class PlasticityCdp {
   private group='plasticity-mcp-'+randomUUID();
   private bindings = new Map<string, Remote>();
   private editor?: string;
+  readonly endpoint:string;
+  readonly mainInspector:boolean;
   target?: PlasticityTarget;
-  constructor(readonly endpoint = 'http://127.0.0.1:9223',stateDirectory?:string) {
-    const u = new URL(endpoint);
+  constructor(endpoint?:string,stateDirectory?:string,mainInspector?:boolean) {
+    this.endpoint=endpoint??process.env.PLASTICITY_MAIN_CDP_URL??process.env.PLASTICITY_CDP_URL??'http://127.0.0.1:9223';
+    this.mainInspector=mainInspector??(endpoint===undefined&&Boolean(process.env.PLASTICITY_MAIN_CDP_URL));
+    const u = new URL(this.endpoint);
     if (u.protocol !== 'http:' || !['127.0.0.1','localhost','[::1]'].includes(u.hostname)) throw new Error('CDP endpoint must be local HTTP');
-    this.store=new OperationStore(endpoint,stateDirectory);
+    this.store=new OperationStore(this.endpoint,stateDirectory);
   }
   async targets(): Promise<PlasticityTarget[]> {
     const response = await fetch(`${this.endpoint}/json/list`, {signal: AbortSignal.timeout(5000),redirect:'error'});
     if (!response.ok) throw new Error(`CDP discovery failed: HTTP ${response.status}`);
     const rows = await response.json() as PlasticityTarget[];
+    if(this.mainInspector){
+      if(rows.length!==1)throw new Error('Expected one Electron main inspector target');
+      const inspector=rows[0]!;
+      const probe=new PlasticityCdp(this.endpoint,undefined,false);
+      try{
+        await probe.openSocket(inspector.webSocketDebuggerUrl);
+        const result=await probe.rawCall('Runtime.evaluate',{expression:buildMainDiscoveryExpression(),returnByValue:true,awaitPromise:true});
+        const windows=this.unwrapMainResult(result) as {id:number;title:string;url:string}[];
+        return windows.filter(w=>w.url.includes('/app_window/')&&/plasticity/i.test(w.url)).map(w=>({
+          id:`${inspector.id}:${w.id}`,title:w.title,url:w.url,webSocketDebuggerUrl:inspector.webSocketDebuggerUrl,webContentsId:w.id,
+        }));
+      }finally{await probe.disconnect()}
+    }
     return rows.filter(t => t.url?.includes('/app_window/') && /plasticity/i.test(t.url));
   }
-  async connect(targetId: string): Promise<void> {
+  async connect(targetId: string,validateTarget?:(target:PlasticityTarget)=>Promise<void>): Promise<void> {
     await this.disconnect();
     const target = (await this.targets()).find(t => t.id === targetId);
     if (!target) throw new Error('Plasticity window not found. Call native_windows and use its targetId.');
-    const u=new URL(target.webSocketDebuggerUrl);
+    await validateTarget?.(target);
+    await this.openSocket(target.webSocketDebuggerUrl);
+    this.target=target;
+    try {
+      if(target.webContentsId!==undefined)this.unwrapMainResult(await this.rawCall('Runtime.evaluate',{
+        expression:buildAttachExpression(target.webContentsId,this.group),returnByValue:true,awaitPromise:true,
+      }));
+      await this.discoverRuntime();
+    }catch(err){await this.disconnect();throw err;}
+  }
+  private async openSocket(url:string){
+    const u=new URL(url);
     if (!['127.0.0.1','localhost','[::1]'].includes(u.hostname) || u.protocol!=='ws:') throw new Error('Non-local debugger URL rejected');
     const ws=this.ws=new WebSocket(u,{handshakeTimeout:5000,maxPayload:64*1024*1024});
     ws.on('message', data => {
@@ -49,7 +78,8 @@ export class PlasticityCdp {
     ws.on('close',()=>{if(this.ws===ws){this.ws=undefined;this.target=undefined;this.editor=undefined;this.bindings.clear();}this.rejectPending(new CdpError('DISCONNECTED','Plasticity debugger disconnected'),ws);});
     ws.on('error',err=>this.rejectPending(new CdpError('DISCONNECTED',err.message),ws));
     await new Promise<void>((resolve,reject)=>{ws.once('open',resolve);ws.once('error',reject)});
-    try {
+  }
+  private async discoverRuntime(){
       const fn=await this.call('Runtime.evaluate',{expression:'document.querySelector("command-log")?.handleCommandStarted',objectGroup:this.group});
       if(!fn.result?.objectId)throw new Error('Unsupported Plasticity runtime: command-log callback unavailable');
       const props=await this.call('Runtime.getProperties',{objectId:fn.result.objectId,ownProperties:true});
@@ -63,10 +93,8 @@ export class PlasticityCdp {
       }
       this.editor=this.bindings.get('editor')?.objectId;
       if(!this.editor)throw new Error('Plasticity Editor is unavailable in this build');
-      this.target=target;
       const guard=await this.inspectGuard();this.documentToken=guard.documentToken;
       await this.refreshRecovery();
-    }catch(err){await this.disconnect();throw err;}
   }
   names():string[]{return [...this.bindings.keys()].filter(k=>/Factory$|Command$|Vector3$|Quaternion$/.test(k)).sort()}
   bindingNames():string[]{return [...this.bindings.keys()].sort()}
@@ -126,6 +154,29 @@ export class PlasticityCdp {
     return response.result?.value;
   }
   async call(method:string,params:Record<string,unknown>={},timeout=15000):Promise<any>{
+    if(this.target?.webContentsId!==undefined){
+      return this.unwrapMainResult(await this.rawCall('Runtime.evaluate',{
+        expression:buildRendererCommandExpression(this.target.webContentsId,this.group,method,params),
+        returnByValue:true,awaitPromise:true,
+      },timeout));
+    }
+    return this.rawCall(method,params,timeout);
+  }
+  private unwrapMainResult(result:any){
+    if(result.exceptionDetails)throw new CdpError('MAIN_INSPECTOR_ERROR',result.exceptionDetails.exception?.description??result.exceptionDetails.text);
+    return result.result?.value;
+  }
+  async captureScreenshot():Promise<{data:string}>{
+    if(!this.target)throw new Error('Connect to a window first');
+    if(this.target.webContentsId!==undefined){
+      return this.unwrapMainResult(await this.rawCall('Runtime.evaluate',{
+        expression:buildScreenshotExpression(this.target.webContentsId,this.group),returnByValue:true,awaitPromise:true,
+      },30000));
+    }
+    await this.call('Page.bringToFront',{},5000);
+    return this.call('Page.captureScreenshot',{format:'png'},30000);
+  }
+  private async rawCall(method:string,params:Record<string,unknown>={},timeout=15000):Promise<any>{
     const ws=this.ws;if(!ws || ws.readyState!==WebSocket.OPEN)throw new Error('Debugger not connected');
     const id=++this.sequence;
     return new Promise((resolve,reject)=>{
@@ -139,6 +190,9 @@ export class PlasticityCdp {
     const ws=this.ws;
     if(!ws)return;
     if(ws.readyState===WebSocket.OPEN){await this.call('Runtime.releaseObjectGroup',{objectGroup:this.group},1000).catch(()=>{});}
+    if(ws.readyState===WebSocket.OPEN && this.target?.webContentsId!==undefined){
+      await this.rawCall('Runtime.evaluate',{expression:buildDetachExpression(this.target.webContentsId,this.group),returnByValue:true,awaitPromise:true},1000).catch(()=>{});
+    }
     await new Promise<void>(resolve=>{const timer=setTimeout(()=>{ws.terminate();resolve()},1000);ws.once('close',()=>{clearTimeout(timer);resolve()});ws.close()});
   }
 }

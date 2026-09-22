@@ -1,3 +1,4 @@
+import {clientEnv} from './client-env.js';
 // Explicit, opt-in live test. Creates geometry only in the specified disposable window.
 import {Client} from '@modelcontextprotocol/sdk/client/index.js';
 import {StdioClientTransport} from '@modelcontextprotocol/sdk/client/stdio.js';
@@ -9,7 +10,7 @@ if(!targetId)throw new Error('Set PLASTICITY_TARGET to a disposable Plasticity w
 const output=resolve('..','artifacts',`native-smoke-${Date.now()}`);
 await mkdir(output,{recursive:true});
 const client=new Client({name:'plasticity-live-verifier',version:'1.0.0'});
-const transport=new StdioClientTransport({command:process.execPath,args:[resolve('dist/index.js')],stderr:'pipe'});
+const transport=new StdioClientTransport({command:process.execPath,args:[resolve('dist/index.js')],stderr:'pipe',env:clientEnv});
 const report:any[]=[];
 async function call(name:string,args:Record<string,unknown>={}){
  const r=await client.callTool({name,arguments:args});
