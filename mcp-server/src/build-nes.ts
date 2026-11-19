@@ -405,7 +405,7 @@ async function main() {
   await native.deleteBodies(logoWires.map(w => w.id));
 
   // Deboss letter faces into the flap surface
-  topo = await native.topology(chDoorId, { faces: true });
+  topo = await native.topology(chDoorId, "faces");
   const letterFaces = topo.faces!.filter(f => {
     return Math.abs(f.normal[1] - (-1)) < 0.05 &&
            Math.abs(f.centerMm[1] - (-100.5)) < 0.1 &&
