@@ -8,6 +8,10 @@ On Windows with Node.js 22.17.0, the server built successfully and passed type c
 
 The signed Windows MSI from the official 26.2.9 release matched its published SHA-256. Installation succeeded and the application process reported version 26.2.9. After enabling Server in Plasticity, the bridge smoke test connected to `127.0.0.1:8980`, completed the handshake and listed scene objects. A separate stdio MCP client called `connect`, `status` and `list_scene` with `includeMesh: true`. The response included mesh counts and bounding box fields for a solid. Native editing, Undo and file round trips remain unverified.
 
+A second check called `get_object` with a solid ID from the scene listing. Its bounding box matched the scene entry and its triangle count was positive. For clients with a tool allowlist, the four verified calls are `connect`, `status`, `list_scene` and `get_object`.
+
+In the same normally launched application session, `native_status` reported `connected: false` and supported version `26.1.3`. Calling `native_connect` returned a discovery error on port 9223. The failure occurred before version validation or any modelling command.
+
 Run the checks from `mcp-server`.
 
 ```powershell
