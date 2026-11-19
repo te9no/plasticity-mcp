@@ -151,6 +151,7 @@ function toElement(projection: ProjectedView, segment: ProjectedSegment): Elemen
     } else {
       // Safe fallback: polyline through control points
       commands.push(`M ${fixed(control[0]![0])} ${fixed(control[0]![1])}`);
+      extent.push(control[0]!);
       for (let i = 1; i < control.length; i++) {
         commands.push(`L ${fixed(control[i]![0])} ${fixed(control[i]![1])}`);
         extent.push(control[i]!);
